@@ -6,6 +6,15 @@
   "publisher": "gokhanmaden",
   "author": "Gökhan Maden",
   "license": "MIT",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#151A2B",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/GokhanMaden/vscode-quick-log#readme",
+  "bugs": {
+    "url": "https://github.com/GokhanMaden/vscode-quick-log/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/GokhanMaden/vscode-quick-log"

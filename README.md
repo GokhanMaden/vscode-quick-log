@@ -1,5 +1,7 @@
 # Quick Log
 
+[![CI](https://github.com/GokhanMaden/vscode-quick-log/actions/workflows/ci.yml/badge.svg)](https://github.com/GokhanMaden/vscode-quick-log/actions/workflows/ci.yml)
+
 Stop typing `console.log` by hand. Select a variable, press **Cmd+Shift+K** (Ctrl+Shift+K on Windows/Linux), and get:
 
 ```js

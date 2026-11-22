@@ -1,0 +1,45 @@
+# Publishes to the VS Code Marketplace when you push a version tag:
+#   npm version patch   (bumps package.json + creates tag v0.2.1)
+#   git push --follow-tags
+#
+# Auth uses Marketplace "Trusted Publishing" (GitHub OIDC) — no token stored
+# in the repo. The Marketplace policy must name THIS file: release.yml
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # request the OIDC token for Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+      # Guard against tagging v0.3.0 while package.json still says 0.2.0.
+      - name: Check tag matches package.json version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - run: npm run package
+
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce@latest publish --oidc --packagePath "$(ls *.vsix)"
+
+      - name: Create GitHub Release with the .vsix attached
+        run: gh release create "$GITHUB_REF_NAME" *.vsix --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
