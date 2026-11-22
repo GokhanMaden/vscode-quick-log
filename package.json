@@ -1,5 +1,5 @@
 {
-  "name": "quick-log",
+  "name": "vscode-quick-log",
   "displayName": "Quick Log",
   "description": "Insert console.log for the selected variable with one shortcut.",
   "version": "0.2.0",

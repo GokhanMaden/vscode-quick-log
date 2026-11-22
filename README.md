@@ -44,8 +44,8 @@ To add a test case, create `test/fixtures/<name>/input.ts` with the selection ma
 ## Install locally
 
 ```bash
-npm run package                      # creates quick-log-0.2.0.vsix
-code --install-extension quick-log-0.2.0.vsix
+npm run package                      # creates vscode-quick-log-0.2.0.vsix
+code --install-extension vscode-quick-log-0.2.0.vsix
 ```
 
 ## Project structure
