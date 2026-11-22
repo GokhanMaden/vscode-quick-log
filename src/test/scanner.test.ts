@@ -1,8 +1,9 @@
-// Unit tests for the pure logic, using Node's built-in test runner.
+// Unit tests for the v1 scanner (now the fallback) and the log text helpers.
 // Run with: npm test   (no VS Code instance needed)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLogStatement, findInsertionPoint, isLoggableWord } from "../logic";
+import { buildLogStatement, isLoggableWord } from "../log";
+import { findInsertionPoint } from "../placement/scanner";
 
 const TAB = "  "; // pretend the editor uses 2-space indentation
 

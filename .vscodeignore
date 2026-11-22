@@ -1,8 +1,11 @@
+# Only dist/ (the esbuild bundle), package.json, README and LICENSE ship.
 .vscode/**
 src/**
-out/test/**
+out/**
+test/**
+node_modules/**
 **/*.map
 **/*.ts
 tsconfig.json
 .gitignore
-node_modules/**
+PLAN.md

@@ -1,0 +1,1 @@
+function noop(«x»: unknown) {}

@@ -1,11 +1,14 @@
 // ---------------------------------------------------------------------------
-// logic.ts
+// placement/scanner.ts  (v1 logic, kept as the FALLBACK in v2)
 //
-// Pure functions only — this file never imports `vscode`.
-// That's deliberate: it lets us unit-test the "where should the log go?"
-// logic with plain Node (`npm test`) without launching VS Code at all.
-// extension.ts is just a thin adapter that feeds editor data into these.
+// A lightweight line scanner that guesses where a statement ends by counting
+// brackets. v2 uses a real parser (ast.ts) first; this only runs when Babel
+// can't parse the file at all, so the command never silently does nothing.
+// Pure functions only — no `vscode` import, so it's unit-testable with Node.
 // ---------------------------------------------------------------------------
+import { buildLogStatement } from "../log";
+import type { EditPlan, PlanInput } from "./plan";
+import { lineEnd } from "./text";
 
 /** Where the new console.log line should be inserted. */
 export interface InsertionPoint {
@@ -249,31 +252,26 @@ export function findInsertionPoint(
 }
 
 /**
- * Builds the log statement itself:
- *   gokhan        -> console.log("gokhan:", gokhan)
- *   obj["key"]    -> console.log("obj[\"key\"]:", obj["key"])
- * Multi-line selections are collapsed to one line so the result stays valid.
+ * Adapter: turns the v1 line-based answer into a v2 EditPlan (offsets).
  */
-export function buildLogStatement(expr: string): string {
-  const oneLine = expr.trim().replace(/\s+/g, " ");
-  const label = oneLine.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `console.log("${label}:", ${oneLine})`;
-}
+export function planWithScanner(input: PlanInput): EditPlan {
+  const { source, selStart, expr, indentUnit, eol } = input;
+  const lines = source.split(/\r?\n/);
 
-/**
- * Words we should never log on their own — if the cursor sits on `const`
- * we'd otherwise produce `console.log("const:", const)`, which is invalid.
- */
-const RESERVED = new Set([
-  "break", "case", "catch", "class", "const", "continue", "debugger",
-  "default", "delete", "do", "else", "export", "extends", "false",
-  "finally", "for", "function", "if", "import", "in", "instanceof", "let",
-  "new", "null", "return", "super", "switch", "throw", "true",
-  "try", "typeof", "var", "void", "while", "with", "yield", "async",
-  "await", "interface", "type", "enum", "implements", "private",
-  "protected", "public", "readonly", "static", "undefined",
-]);
+  // Which line is the selection on? Count the newlines before it.
+  let startLine = 0;
+  for (let i = 0; i < selStart; i++) if (source[i] === "\n") startLine++;
 
-export function isLoggableWord(word: string): boolean {
-  return word.length > 0 && !RESERVED.has(word);
+  const point = findInsertionPoint(lines, startLine, expr, indentUnit);
+
+  // Offset of the first character of `point.afterLine`...
+  let offset = 0;
+  for (let l = 0; l < point.afterLine; l++) offset = source.indexOf("\n", offset) + 1;
+
+  // ...then jump to the end of that line and insert a new line there.
+  return {
+    kind: "insert",
+    offset: lineEnd(source, offset),
+    text: eol + point.indent + buildLogStatement(expr),
+  };
 }

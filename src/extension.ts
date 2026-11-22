@@ -2,10 +2,11 @@
 // extension.ts
 //
 // Entry point VS Code loads. Its only job is to translate between the editor
-// (selections, document, edits) and the pure logic in logic.ts.
+// (selections, document, edits) and the pure placement logic in placement/.
 // ---------------------------------------------------------------------------
 import * as vscode from "vscode";
-import { buildLogStatement, findInsertionPoint, isLoggableWord } from "./logic";
+import { isLoggableWord } from "./log";
+import { endOf, planLog, startOf, UNSUPPORTED, type EditPlan } from "./placement";
 
 // What counts as a "word" when nothing is selected. VS Code's default word
 // pattern doesn't include `$`, which is valid in JS identifiers ($state, $el).
@@ -33,24 +34,16 @@ async function insertLog(): Promise<void> {
   if (!editor) return;
 
   const doc = editor.document;
-
-  // Snapshot of all lines as plain strings — that's all logic.ts needs.
-  const lines: string[] = [];
-  for (let i = 0; i < doc.lineCount; i++) lines.push(doc.lineAt(i).text);
+  const source = doc.getText();
 
   // Respect the file's own indentation settings (2 spaces / 4 spaces / tabs).
-  const indentUnit = editor.options.insertSpaces
-    ? " ".repeat(Number(editor.options.tabSize) || 2)
-    : "\t";
+  const indentUnit = editor.options.insertSpaces ? " ".repeat(Number(editor.options.tabSize) || 2) : "\t";
 
   // Use the file's line ending so we don't mix \n and \r\n.
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
 
   // One target per cursor — multi-cursor works for free this way.
-  const targets = editor.selections.map((selection) => {
-    const expr = getExpression(doc, selection);
-    return expr ? { expr, line: selection.start.line } : null;
-  });
+  const targets = editor.selections.map((selection) => getTarget(doc, selection));
 
   // No selection and the cursor isn't on a word (e.g. an empty line):
   // insert an empty `console.log()` and put the cursor between the parens.
@@ -60,43 +53,80 @@ async function insertLog(): Promise<void> {
     return;
   }
 
-  // Group logs by the line they go after. Two cursors in the same statement
-  // would otherwise create two inserts at the exact same position, which
-  // VS Code's edit builder may reject as overlapping.
-  const byLine = new Map<number, string[]>();
+  const plans: EditPlan[] = [];
+  let unsupported = 0;
   for (const target of targets) {
     if (!target) continue;
-    const point = findInsertionPoint(lines, target.line, target.expr, indentUnit);
-    const text = point.indent + buildLogStatement(target.expr);
-    byLine.set(point.afterLine, [...(byLine.get(point.afterLine) ?? []), text]);
+    const result = planLog({ source, languageId: doc.languageId, indentUnit, eol, ...target });
+    if (result === UNSUPPORTED) unsupported++;
+    else plans.push(result);
+  }
+
+  if (plans.length === 0) {
+    if (unsupported > 0) {
+      vscode.window.showInformationMessage("Quick Log: can't add a log here (type or class body).");
+    }
+    return;
   }
 
   // A single `edit` call = a single undo step. Cmd+Z removes all logs at once.
   await editor.edit((builder) => {
-    for (const [afterLine, texts] of byLine) {
-      const endOfLine = doc.lineAt(afterLine).range.end;
-      // Insert at the END of the line, starting with a newline,
-      // so the new log sits on its own line right below.
-      builder.insert(endOfLine, texts.map((t) => eol + t).join(""));
+    for (const plan of mergePlans(plans)) {
+      if (plan.kind === "insert") {
+        builder.insert(doc.positionAt(plan.offset), plan.text);
+      } else {
+        builder.replace(new vscode.Range(doc.positionAt(plan.start), doc.positionAt(plan.end)), plan.text);
+      }
     }
   });
 }
 
 /**
- * Figures out WHAT to log for one cursor/selection:
- *  - text is selected  -> the selected text (`gokhan`, `user.name`, ...)
+ * VS Code rejects overlapping edits in one `edit()` call. With multiple
+ * cursors two plans can collide, so:
+ *  - inserts at the same offset are merged into one insert (texts joined),
+ *  - any plan that overlaps an earlier kept one is dropped
+ *    (e.g. two cursors that both want to convert the same arrow body).
+ */
+function mergePlans(plans: EditPlan[]): EditPlan[] {
+  const sorted = [...plans].sort((a, b) => startOf(a) - startOf(b));
+  const kept: EditPlan[] = [];
+
+  for (const plan of sorted) {
+    const last = kept[kept.length - 1];
+    if (last?.kind === "insert" && plan.kind === "insert" && last.offset === plan.offset) {
+      kept[kept.length - 1] = { ...last, text: last.text + plan.text };
+      continue;
+    }
+    if (last && startOf(plan) < endOf(last)) continue; // overlaps → skip
+    kept.push(plan);
+  }
+  return kept;
+}
+
+/**
+ * Figures out WHAT to log for one cursor/selection, as offsets:
+ *  - text is selected  -> the selected text, trimmed (`gokhan`, `user.name`)
  *  - nothing selected  -> the identifier under the cursor, if any
  *  - otherwise         -> null (nothing to log for this cursor)
  */
-function getExpression(doc: vscode.TextDocument, selection: vscode.Selection): string | null {
+function getTarget(
+  doc: vscode.TextDocument,
+  selection: vscode.Selection
+): { expr: string; selStart: number; selEnd: number } | null {
   if (!selection.isEmpty) {
-    const text = doc.getText(selection).trim();
-    return text.length > 0 ? text : null;
+    const raw = doc.getText(selection);
+    const expr = raw.trim();
+    if (!expr) return null;
+    // Shift the start past any leading whitespace that `trim()` removed.
+    const selStart = doc.offsetAt(selection.start) + (raw.length - raw.trimStart().length);
+    return { expr, selStart, selEnd: selStart + expr.length };
   }
 
   const range = doc.getWordRangeAtPosition(selection.active, IDENTIFIER);
   if (!range) return null;
 
   const word = doc.getText(range);
-  return isLoggableWord(word) ? word : null;
+  if (!isLoggableWord(word)) return null;
+  return { expr: word, selStart: doc.offsetAt(range.start), selEnd: doc.offsetAt(range.end) };
 }
